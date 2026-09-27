@@ -330,17 +330,34 @@ Three different cards, no shared opening sentence, and each names `$38` and
      "I gave Claude my search_listings spec. It returned None on no match
      instead of an empty list, so I changed it" is the level we want. -->
 
-**Moment 1**
+**Moment 1 — the size filter**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* I gave Claude my `search_listings` spec and asked
+  whether someone else could build the tool from it without asking me
+  anything.
+- *What came back:* It pointed at the size line. I'd written "match
+  case-insensitively," which sounds specific but isn't — a substring test
+  makes `"L"` match `XL`, and `"S"` match `US 9`, so asking for a small top
+  returns shoes. It also found `One Size` and `XL (oversized)` in the data,
+  which I hadn't decided anything about.
+- *What I changed:* I replaced that line with an actual rule: drop
+  parentheses, split the listing's size on `/` and spaces, and require an
+  exact match against one whole token, with `One Size` matching everything.
+  That's what `_size_matches` in `tools.py` implements, and my Milestone 4
+  test confirms no `L`, `XL` or `W__` result comes back for size M.
 
-**Moment 2**
+**Moment 2 — a criterion I threw out**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* Candidates for my fifth acceptance criterion, built
+  from things my code can actually be measured on.
+- *What came back:* Four options. One was "every result is at or under the
+  price ceiling — 5 of 5," which looked like the cleanest to score.
+- *What I changed:* I dropped it. The price ceiling is one `if` on a float in
+  code I'd already written, so it passes 5 of 5 by construction — the brief
+  warns that a target you can't miss is the thing that costs points. I took
+  the empty-wardrobe criterion instead, at 4 of 5, because whether the model
+  invents clothes the user never entered depends on my prompt holding it back,
+  and that can genuinely fail.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
