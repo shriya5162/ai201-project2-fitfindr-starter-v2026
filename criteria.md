@@ -24,10 +24,10 @@ data earns credit; *"80% seemed reasonable"* does not.
 Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
-**Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+**Why this target:** My search is plain keyword overlap against `title`,
+`description` and `style_tags`, so some phrasings of a thing that *is* in the
+data will score zero and stop the run early. 4 of 5 leaves room for that
+without excusing a broken loop.
 
 ---
 
@@ -36,66 +36,50 @@ tool calls and returns a fit card — in at least 4 of 5 tries.
 Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
-**Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+**Why this target:** No model runs on this path — it's one `if` on an empty
+list. Nothing can vary between tries, so anything under 5 of 5 is a bug, not
+variance.
 
 ---
 
-## 3. Something about state
+## 3. The item search found is the item the next tool got
 
-<!-- YOU WRITE THIS ONE.
+Across 5 runs with matching queries, the `id` in `session["selected_item"]` is
+the `id` of the item whose title appears in `session["outfit_suggestion"]` —
+5 of 5 tries.
 
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
-
-**Why this target:**
-
+**Why this target:** Nothing between those two points calls the model; it's a
+dict handed from the session into `suggest_outfit`. A mismatch means I passed
+the wrong item or rebuilt it instead of reading it back, so there's no
+variance to allow for.
 
 
 ---
 
-## 4. Something about the fit card
+## 4. The fit card names the price and platform, and stays caption-length
 
-<!-- YOU WRITE THIS ONE.
+Each fit card names the item's price and its platform exactly once and runs
+2 to 4 sentences — in at least 4 of 5 tries.
 
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
-
-**Why this target:**
-
+**Why this target:** The words should change run to run, so I'm scoring what
+has to be there rather than the wording. 4 of 5 because the model writes it:
+one card in five drifting to a fifth sentence or dropping the platform is the
+tool behaving normally. Price and platform are the two facts a caption is
+useless without, and unlike `brand` they're never null.
 
 
 ---
 
-## 5. Your choice
+## 5. An empty wardrobe still produces a card, with nothing invented
 
-<!-- YOU WRITE THIS ONE TOO.
+Run with `--empty-wardrobe`, the agent still returns a non-empty fit card and
+the outfit suggestion names no specific garment as something the user already
+owns — in at least 4 of 5 tries.
 
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
-
-**Why this target:**
-
+**Why this target:** With `wardrobe["items"]` empty there is nothing to style
+against, and the obvious failure is the model confidently pairing the find
+with jeans the user never entered. 4 of 5 rather than 5 of 5 because avoiding
+that is down to my prompt holding the model back, not to an `if` statement.
 
 
 ---
