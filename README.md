@@ -186,20 +186,95 @@ $ python app.py ask '...'
 
 **The three tools, tested one at a time**
 
-```
-$ python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
+**1. `search_listings` — a match, and the empty case**
 
 ```
+$ python -c "from tools import search_listings; r = search_listings('vintage graphic tee', size='M', max_price=30.0); print(len(r), 'results'); [print(x['id'], x['title'], x['size'], x['price']) for x in r]; print('empty case:', search_listings('designer ballgown', size='XXS', max_price=5.0))"
+
+10 results
+lst_002 Y2K Baby Tee — Butterfly Print S/M 18.0
+lst_017 Mesh Long-Sleeve Top — Black S/M 15.0
+lst_013 90s Silk Slip Dress — Floral, Midi Length M 30.0
+lst_014 Leather Belt — Brown, Braided One Size (adjustable) 12.0
+lst_020 Henley Long Sleeve — Washed Burgundy M 16.0
+lst_024 Vintage Polo Shirt — Forest Green M 18.0
+lst_029 Silk Button-Down — Sage Green M 28.0
+lst_030 Vintage Knit Vest — Argyle Brown/Cream M 25.0
+lst_034 Bucket Hat — Reversible, Brown Plaid One Size 14.0
+lst_038 Denim Vest — Medium Wash, Studded M 27.0
+empty case: []
+```
+
+Every price is at or under 30, no result is sized `L`, `XL` or a `W__` waist,
+and the two `One Size` items came through as the size rule says they should.
+The empty case is `[]`, which is what the loop branches on.
+
+**2. `suggest_outfit` — the example wardrobe, then an empty one**
 
 ```
-$ python -c "from tools import suggest_outfit; ..."
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
 
+Pair the Vintage Levi's 501 Jeans — Medium Wash with the white ribbed tank top
+tucked in, layered under the vintage black denim jacket, and finished with the
+chunky white sneakers. Add a brown leather belt to pull the casual look together.
+
+For a cozier street style vibe, style the Vintage Levi's 501 Jeans — Medium Wash
+with the oversized grey crewneck sweatshirt and the black combat boots. Cinch the
+waist with the brown leather belt and wear the black crossbody bag to complete
+the outfit.
 ```
 
-```
-$ python -c "from tools import create_fit_card; ..."
+Every piece named is one of the ten wardrobe items.
 
 ```
+$ python -c "from tools import suggest_outfit; from utils.data_loader import get_empty_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_empty_wardrobe()))"
+
+These mid-rise, straight-leg classics create a balanced silhouette that looks
+best paired with an oversized, boxy top to contrast the fitted waist. The
+versatile medium indigo wash acts as a neutral, sitting effortlessly next to
+earthy tones like olive and cream, as well as crisp bright whites. Elevate the
+streetwear edge by finishing the look with saturated jewel tones like cherry red
+or emerald green for a sharp pop of contrast.
+```
+
+Non-empty, and it describes silhouettes and colours instead of claiming the
+user owns anything — criterion 5.
+
+**3. `create_fit_card` — the empty case, then three runs on one item**
+
+```
+$ python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(repr(create_fit_card('   ', load_listings()[0])))"
+
+"Can't write a fit card without an outfit."
+```
+
+Three runs on the same item with the cache off (`AI201_CACHE=0`), to check the
+cards aren't a template:
+
+```
+$ AI201_CACHE=0 python -c "from tools import create_fit_card; from utils.data_loader import load_listings; i=load_listings()[0]
+for n in range(3): print(create_fit_card('jeans and white sneakers', i))"
+
+--- run 1 ---
+Finally tracked down the holy grail vintage Levi's 501 jeans in that perfect
+medium wash. They've got that ideal broken-in indigo look that only comes with
+real age. Just wearing them with crisp white sneakers for that effortless
+streetwear vibe. Snagged them for $38 on depop.
+
+--- run 2 ---
+Nothing beats a classic pair of vintage Levi's that actually hold their shape.
+Scored these medium wash ones on depop for $38 and they are the ultimate everyday
+straight leg. Just throwing them on with crisp white sneakers for that effortless,
+broken-in 90s look.
+
+--- run 3 ---
+Finally found the holy grail of slouchy vintage denim in the absolute best medium
+wash. Got these on depop for $38 and I'm honestly never taking them off. They look
+so good worn low with crisp white sneakers for that effortless 90s streetwear look.
+```
+
+Three different cards, no shared opening sentence, and each names `$38` and
+`depop` once — criterion 4.
 
 ---
 

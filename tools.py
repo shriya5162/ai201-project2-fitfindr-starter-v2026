@@ -20,7 +20,9 @@ That last line is what your loop branches on. "Returns a list" earns nothing —
 the description has to say what is *in* the list.
 """
 
-import config  # noqa: F401 — you'll use this in search_listings
+import re
+
+import config
 from generate import generate
 from utils.data_loader import load_listings
 
@@ -78,8 +80,68 @@ def search_listings(
     Test it from a terminal before you move on:
         python -c "from tools import search_listings; print(search_listings('graphic tee', max_price=30))"
     """
-    # TODO: replace this with your implementation
-    return []
+    results = []
+
+    for listing in load_listings():
+        if max_price is not None and listing["price"] > max_price:
+            continue
+        if size is not None and not _size_matches(size, listing["size"]):
+            continue
+
+        score = _keyword_score(description, listing)
+        if score == 0:
+            continue
+
+        results.append((score, listing))
+
+    results.sort(key=lambda pair: pair[0], reverse=True)
+    return [listing for _score, listing in results[: config.SEARCH_RESULT_LIMIT]]
+
+
+def _size_matches(wanted: str, listing_size: str) -> bool:
+    """
+    Whether a requested size matches a listing's size string.
+
+    The data has 'M', 'S/M', 'XL (oversized)', 'W30 L30', 'US 8.5' and
+    'One Size' in it, so a substring test is no good — 'L' is in 'XL' and 'S'
+    is in 'US 9'. Instead: drop anything in parentheses, split on '/' and
+    spaces, and require an exact match against one whole token.
+
+        'M'  matches  M, S/M, M/L        but not  XL, W30 L30
+        '8'  matches  US 8               but not  US 8.5
+
+    A listing sized 'One Size' matches every request.
+    """
+    wanted = wanted.strip().upper()
+    if not wanted:
+        return True
+
+    cleaned = re.sub(r"\(.*?\)", " ", listing_size.upper())
+    tokens = [t for t in re.split(r"[/\s]+", cleaned) if t]
+
+    if "ONE" in tokens and "SIZE" in tokens:
+        return True
+
+    return wanted in tokens
+
+
+def _keyword_score(description: str, listing: dict) -> int:
+    """
+    How many of the query's words show up in this listing.
+
+    Searches the title, the description and the style_tags together, because
+    'vintage graphic tee' only finds lst_006 through its tags — its title
+    never says 'vintage'. Words under three characters are dropped so 'a' and
+    'in' don't score every listing in the file.
+    """
+    haystack = " ".join([
+        listing["title"],
+        listing["description"],
+        " ".join(listing["style_tags"]),
+    ]).lower()
+
+    words = {w for w in re.split(r"[^a-z0-9]+", description.lower()) if len(w) >= 3}
+    return sum(1 for word in words if word in haystack)
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
@@ -112,8 +174,55 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import suggest_outfit; from utils.data_loader import get_example_wardrobe, load_listings; print(suggest_outfit(load_listings()[0], get_example_wardrobe()))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    item = _describe_item(new_item)
+    items = wardrobe.get("items") or []
+
+    system = (
+        "You are a thrift stylist. Be concrete and brief. Two or three "
+        "sentences per outfit, no bullet points, no headings."
+    )
+
+    if not items:
+        # Empty wardrobe: there is nothing to name, so the prompt says so
+        # explicitly. Criterion 5 is about the model not inventing pieces the
+        # user never entered.
+        prompt = (
+            f"Someone is considering this secondhand find:\n{item}\n\n"
+            "They have not entered any of their own clothes yet, so you do "
+            "not know what they own. Give general styling advice for this "
+            "piece in two or three sentences: the silhouette it works with "
+            "and the colours it sits next to. Do not name or assume any "
+            "specific garment as something they already own."
+        )
+    else:
+        closet = "\n".join(
+            f"- {w['name']} ({w['category']}; {', '.join(w['colors'])})"
+            for w in items
+        )
+        prompt = (
+            f"Someone is considering this secondhand find:\n{item}\n\n"
+            f"Here is everything in their wardrobe:\n{closet}\n\n"
+            "Suggest one or two outfits pairing the find with pieces from "
+            "that list. Name each piece exactly as it is written above, and "
+            "name the find by its title. Use only pieces from the list."
+        )
+
+    return generate(prompt, system=system)
+
+
+def _describe_item(item: dict) -> str:
+    """Flatten a listing dict into the lines a prompt needs."""
+    lines = [
+        f"Title: {item['title']}",
+        f"Category: {item['category']}",
+        f"Colours: {', '.join(item['colors'])}",
+        f"Style: {', '.join(item['style_tags'])}",
+        f"Size: {item['size']}, condition {item['condition']}",
+        f"Price: ${item['price']:.0f} on {item['platform']}",
+    ]
+    if item.get("brand"):  # brand is None on most listings
+        lines.append(f"Brand: {item['brand']}")
+    return "\n".join(lines)
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -152,5 +261,19 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
     Test it from a terminal before you move on:
         python -c "from tools import create_fit_card; from utils.data_loader import load_listings; print(create_fit_card('jeans and white sneakers', load_listings()[0]))"
     """
-    # TODO: replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "Can't write a fit card without an outfit."
+
+    system = (
+        "You write short captions for secondhand fashion posts. Sound like a "
+        "person posting a find, not like a product listing."
+    )
+    prompt = (
+        f"The find:\n{_describe_item(new_item)}\n\n"
+        f"How they are wearing it:\n{outfit.strip()}\n\n"
+        "Write a caption of two to four sentences. Mention the price once and "
+        "the platform once, both exactly as given above. Be specific about the "
+        "vibe of the piece. No hashtags, no headings."
+    )
+
+    return generate(prompt, system=system)
