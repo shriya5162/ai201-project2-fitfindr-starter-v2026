@@ -39,9 +39,33 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
+A user types one plain-language request — "vintage graphic tee under $30,
+size M". FitFindr parses it into a description, a size and a price ceiling,
+searches 40 thrift listings, and picks the best match. It then takes that item
+and the user's saved wardrobe and suggests one or two outfits built from pieces
+they already own, and writes a short caption for the find. If nothing in the
+data matches, it stops after the search and says what to change instead of
+inventing an item.
 
 
+---
+
+## Data Notes (Milestone 1)
+
+**Listing:** `id`, `title`, `description`, `category`, `style_tags`, `size`,
+`condition`, `price` (float), `colors`, `brand`, `platform`.
+**Wardrobe item:** `id`, `name`, `category`, `colors`, `style_tags`, `notes`.
+
+What `search_listings` has to handle:
+
+- `size` has no single format — `M`, `S/M`, `XL (oversized)`, `W30 L30`.
+  Exact matching drops most of the data.
+- `brand` and `notes` can be `null`.
+- Query words live in `title`, `description` **and** `style_tags`. "vintage
+  graphic tee" only matches `lst_006` via its tags; its title never says
+  "vintage".
+- An empty wardrobe is `{"items": []}`, so check `wardrobe["items"]`, not
+  `wardrobe`.
 
 ---
 
@@ -59,24 +83,56 @@
 
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Filters the 40 listings by size and price, scores what's
+  left by keyword overlap with the description, and returns the best matches
+  first. No model call.
+- **Inputs:** `description` (str, required, e.g. `"vintage graphic tee"`);
+  `size` (str or None, e.g. `"M"` — None skips the size filter);
+  `max_price` (float or None, inclusive — None skips the price filter).
+- **Returns:** `list[dict]`, at most `config.SEARCH_RESULT_LIMIT` (10), sorted
+  by keyword score descending. Each dict is a whole listing record:
+  `id` (str), `title` (str), `description` (str), `category` (str),
+  `style_tags` (list[str]), `size` (str), `condition` (str), `price` (float),
+  `colors` (list[str]), `brand` (str or None), `platform` (str).
+- **When it has nothing:** `[]` — an empty list. Not `None`, not a string, no
+  exception. This is what the loop branches on.
+
+**Size match rule** (so someone else could build this): uppercase and strip
+the requested size; uppercase the listing size, drop anything in parentheses,
+and split it on `/` and spaces into tokens. It matches if the requested size
+equals one token exactly. So `"M"` matches `M`, `S/M` and `M/L`, but not `XL`
+or `W30 L30`. `"8"` matches `US 8` but not `US 8.5`. Any listing sized
+`One Size` matches every requested size.
+
+**Keyword score:** lowercase the description, split on whitespace, drop words
+under 3 characters, and count how many appear in the listing's `title`,
+`description` or `style_tags`. Zero-scoring listings are dropped.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Asks the model how to wear one found item with the clothes
+  the user already owns.
+- **Inputs:** `new_item` (dict — one listing dict from `search_listings`);
+  `wardrobe` (dict with an `"items"` key holding `list[dict]`, each with
+  `id`, `name`, `category`, `colors`, `style_tags`, `notes`).
+- **Returns:** A non-empty `str` — one or two outfit ideas in prose, each
+  naming specific wardrobe pieces by their `name`.
+- **When it has nothing:** If `wardrobe["items"]` is empty it still returns a
+  non-empty `str`, but general styling advice for the item instead of named
+  pieces. It never returns `""` and never raises.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Writes a short caption the user could actually post about
+  the find.
+- **Inputs:** `outfit` (str — the return value of `suggest_outfit`);
+  `new_item` (dict — the same listing dict).
+- **Returns:** A `str` of two to four sentences that names the item, its price
+  and its platform once each, and reads like a post rather than a product
+  description. Different items produce different captions.
+- **When it has nothing:** If `outfit` is empty or whitespace-only, it returns
+  a descriptive message (`"Can't write a fit card without an outfit."`) rather
+  than calling the model or raising.
 
 ---
 
@@ -93,13 +149,24 @@
      The grader checks your code against what you claim here, so the file and
      function have to be real. -->
 
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, write a message
+into `session["error"]` naming what the user could change — the price ceiling,
+the size, or the wording — and return the session immediately, leaving
+`selected_item`, `outfit_suggestion` and `fit_card` as `None`. Otherwise put
+the first result in `session["selected_item"]` and continue to
+`suggest_outfit`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex, in `run_agent`. `under $30` / `$30` →
+`max_price` (float); `size M` / `size 8` → `size` (str); those matched spans
+are stripped out and what remains is the `description`.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** `query` → `parsed` (description, size,
+max_price) → `search_results` → `selected_item` → `outfit_suggestion` →
+`fit_card`. `wardrobe` is set at the start and read by `suggest_outfit`. The
+user never re-types the item: `selected_item` is what `search_listings` put in
+the session, and both later tools read it from there.
 
 ---
 
