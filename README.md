@@ -180,9 +180,52 @@ the session, and both later tools read it from there.
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30, size M'
+
+  Found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
+
+  Outfit:   Pair Y2K Baby Tee — Butterfly Print with baggy straight-leg jeans,
+            dark wash, finished with chunky white sneakers and the black
+            crossbody bag.
+
+            Layer the black cropped zip hoodie over Y2K Baby Tee — Butterfly
+            Print, paired with wide-leg khaki trousers and black combat boots.
+
+  Fit card: Found this dreamy little butterfly baby tee on depop for $18 and
+            it's honestly giving peak early 2000s mall rat energy. I've been
+            living for the pastel pink and purple print, especially thrown on
+            with baggy denim and chunky sneakers. Such a cute nostalgic piece
+            to have on rotation.
+```
+
+**The same query, with the session printed** — the item found is the item both
+later tools received:
 
 ```
+parsed:           {'description': 'vintage graphic tee', 'size': 'M', 'max_price': 30.0}
+search_results:   10 -> first is lst_002
+selected_item:    lst_002 Y2K Baby Tee — Butterfly Print
+same object as search_results[0]? True
+title in outfit_suggestion?       True
+price in fit_card?                True
+platform in fit_card?             True
+error:            None
+```
+
+**The query the data can't match** — it stops at the branch:
+
+```
+$ python app.py ask 'designer ballgown size XXS under $5'
+
+  Nothing in the 40 listings matches the words "designer ballgown", size XXS,
+  a price under $5. Try raising the price, dropping the size, or using plainer
+  words — the listings are tagged things like 'vintage', 'y2k', 'grunge',
+  'streetwear' and 'graphic tee', so those find more than a brand name or a
+  specific garment will.
+```
+
+`session["fit_card"]` is still `None` here, and `suggest_outfit` was never
+called.
 
 **The three tools, tested one at a time**
 

@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -107,9 +109,128 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # What to do next. Each pass through the loop reads the session, does one
+    # step, and decides what the next step is — that decision is what makes
+    # this a loop rather than three calls in a row.
+    next_step = "parse"
+    count = 0
+
+    while next_step != "done":
+        count += 1
+        trace.check_iterations(count)
+
+        if next_step == "parse":
+            session["parsed"] = parse_query(session["query"])
+            next_step = "search"
+
+        elif next_step == "search":
+            parsed = session["parsed"]
+            session["search_results"] = search_listings(
+                description=parsed["description"],
+                size=parsed["size"],
+                max_price=parsed["max_price"],
+            )
+
+            # ── THE BRANCH ───────────────────────────────────────────────────
+            # Read the results back out of the session, not out of a local
+            # variable, so what the branch sees is what the session holds.
+            if not session["search_results"]:
+                session["error"] = _nothing_found_message(parsed)
+                next_step = "done"
+            else:
+                next_step = "select"
+
+        elif next_step == "select":
+            session["selected_item"] = session["search_results"][0]
+            next_step = "outfit"
+
+        elif next_step == "outfit":
+            session["outfit_suggestion"] = suggest_outfit(
+                new_item=session["selected_item"],
+                wardrobe=session["wardrobe"],
+            )
+            next_step = "fit_card"
+
+        elif next_step == "fit_card":
+            session["fit_card"] = create_fit_card(
+                outfit=session["outfit_suggestion"],
+                new_item=session["selected_item"],
+            )
+            next_step = "done"
+
     return session
+
+
+# ── parsing the query ─────────────────────────────────────────────────────────
+
+def parse_query(query: str) -> dict:
+    """
+    Pull a description, a size and a price ceiling out of what the user typed.
+
+    Regex, not the model — this runs before any tool call, and spending a
+    request to find a dollar sign would double the cost of every run.
+
+        "vintage graphic tee under $30, size M"
+        → {"description": "vintage graphic tee", "size": "M", "max_price": 30.0}
+
+    Whatever the two patterns match is cut out of the string; what's left is
+    the description.
+    """
+    remaining = query
+
+    # Either a dollar sign — "$30" — or a price word in front of a number —
+    # "under 30". A bare number on its own is left alone, because "size 8"
+    # and "90s" are numbers too.
+    max_price = None
+    price_match = (
+        re.search(r"(?:under|below|less than|max|up to)?\s*\$\s*(\d+(?:\.\d+)?)", remaining, re.I)
+        or re.search(r"(?:under|below|less than|max|up to)\s+(\d+(?:\.\d+)?)\s*(?:dollars|bucks)?", remaining, re.I)
+    )
+    if price_match:
+        max_price = float(price_match.group(1))
+        remaining = remaining[: price_match.start()] + " " + remaining[price_match.end():]
+
+    size = None
+    size_match = re.search(r"\bsize\s+([a-z0-9./]+)", remaining, re.I)
+    if size_match:
+        size = size_match.group(1).strip(".,").upper()
+        remaining = remaining[: size_match.start()] + " " + remaining[size_match.end():]
+
+    # Words that describe the request rather than the garment. Left in, they
+    # score nothing and just add noise to the description.
+    filler = {"looking", "for", "a", "an", "the", "some", "want", "need",
+              "find", "me", "in", "i", "im", "am", "my"}
+    words = [w for w in re.split(r"[\s,]+", remaining) if w]
+    description = " ".join(w for w in words if w.lower().strip(".,") not in filler)
+
+    return {
+        "description": description.strip(),
+        "size": size,
+        "max_price": max_price,
+    }
+
+
+def _nothing_found_message(parsed: dict) -> str:
+    """
+    What to say when the search comes back empty.
+
+    "No results" tells someone nothing about what to do next, so this names
+    the three filters back to them — the two they set and the words they used
+    — because those are the only things they can actually change.
+    """
+    tried = [f'the words "{parsed["description"]}"']
+    if parsed["size"]:
+        tried.append(f'size {parsed["size"]}')
+    if parsed["max_price"] is not None:
+        tried.append(f'a price under ${parsed["max_price"]:.0f}')
+
+    return (
+        "Nothing in the 40 listings matches " + ", ".join(tried) + ". "
+        "Try raising the price, dropping the size, or using plainer words — "
+        "the listings are tagged things like 'vintage', 'y2k', 'grunge', "
+        "'streetwear' and 'graphic tee', so those find more than a brand name "
+        "or a specific garment will."
+    )
 
 
 # ── running it directly ───────────────────────────────────────────────────────
