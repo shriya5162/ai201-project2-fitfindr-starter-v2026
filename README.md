@@ -368,28 +368,95 @@ Three different cards, no shared opening sentence, and each names `$38` and
 
 ## Run Log — Before
 
-<!-- Five criteria, five tries each, in this exact format.
-
-     Five, because your criteria are written out of five. Mark each try PASS
-     or FAIL, count the passes, and read that count against your target — a
-     row targeting 4 of 5 with three PASS cells is MISSED (3/5).
-
-     `python run_eval.py --label before` runs everything and writes the table
-     into results/. Paste it here and fill in the verdicts. -->
+`python run_eval.py --label before`: five tries per criterion, cache off
+(40 real model calls, 0 from cache), temperature 0.9. The full output is in
+[`results/run_2026-10-03_2250_before.md`](results/run_2026-10-03_2250_before.md). Scenarios are in `scenarios.py`, one per criterion.
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item the next tool got | 5 of 5 | PASS | FAIL | FAIL | FAIL | FAIL | MISSED (1/5) |
+| 4. The fit card names price and platform, caption-length | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Empty wardrobe still produces a card, nothing invented | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Real output from one try**, pasted as text, naming the file and function
-that produced it:
+**How each try was scored** (exactly as `criteria.md` is worded, without
+loosening anything):
+
+1. PASS if the run finished with `session["error"] is None` and a non-empty
+   `fit_card`. Query: `vintage graphic tee under $30`.
+2. PASS if the trace stops after `search_listings` (two steps, no
+   `suggest_outfit`), `fit_card` is `None`, and the message names something to
+   change. Query: `designer ballgown size XXS under $5`.
+3. PASS if the selected item's **title**, `90s Track Jacket — Navy/White
+   Stripe`, appears in `outfit_suggestion`. It's the only listing with that
+   title (`lst_004`), so the title identifies the id. In tries 2–5 the outfit
+   says only "90s Track Jacket". That is not the title, so I scored those
+   FAIL. If I'd accepted the shortened name, it would be 5/5. I didn't,
+   because that would loosen the criterion after seeing the result. The trace
+   shows the right item reached `suggest_outfit` all five times, which is the
+   lead for the diagnosis.
+4. PASS if `$30` appears exactly once, the platform ("depop", any
+   capitalisation) exactly once, and the card has 2–4 sentences. All five:
+   1 × `$30`, 1 × depop, 3 sentences.
+5. PASS if the fit card is non-empty and the **outfit suggestion** names no
+   garment as one the user owns. All five outfits give general advice ("pair
+   it with high-waisted wide-leg trousers…"). **Flag:** try 4's *fit card*
+   says "about to live over every slip dress and high-waisted trouser **I
+   own**". That's the invented-ownership failure this criterion exists to
+   catch, but in the caption, which the criterion doesn't look at. It counts
+   as PASS as written. I'm noting it rather than hiding it.
+
+**Real output from one try per criterion**
+
+Criterion 1, try 1. Fit card from `tools.py::create_fit_card`, called by
+`agent.py::run_agent`:
 
 ```
+Found this little butterfly baby tee on depop for just $18 and I’m so obsessed with the dreamy pink and purple print. It gives off the ultimate early 2000s mall-rat energy, especially styled with some baggy denim and chunky sneakers. Such a sweet little piece for summer.
+```
 
+Criterion 2, try 1. Trace and stop message from `agent.py::run_agent` (message
+built by `agent.py::_nothing_found_message`):
+
+```
+[1] parse_query
+      in:  designer ballgown size XXS under $5
+      out: description='designer ballgown', size='XXS', max_price=5.0
+[2] search_listings (via MCP)
+      in:  description='designer ballgown', size='XXS', max_price=5.0
+      out: [] (empty)
+      →    branch: empty, stopping before suggest_outfit
+
+Nothing in the 40 listings matches the words "designer ballgown", size XXS, a price under $5. Try raising the price, dropping the size, or using plainer words — the listings are tagged things like 'vintage', 'y2k', 'grunge', 'streetwear' and 'graphic tee', so those find more than a brand name or a specific garment will.
+```
+
+Criterion 3, try 2 (a FAIL). `selected_item` set by `agent.py::run_agent`,
+outfit from `tools.py::suggest_outfit`:
+
+```
+selected_item: 90s Track Jacket — Navy/White Stripe ($45.0, poshmark)
+
+Layer the 90s Track Jacket over the white ribbed tank top and pair it with baggy straight-leg jeans, dark wash. Finish this retro streetwear look with chunky white sneakers and the black crossbody bag.
+
+Wear the 90s Track Jacket open over the black cropped zip hoodie tucked into the wide-leg khaki trousers. Ground the outfit with black combat boots and accent your waist with the brown leather belt.
+```
+
+For contrast, try 1 (the PASS) opens: "Pair the 90s Track Jacket — Navy/White Stripe with the white ribbed tank top and baggy straight-leg jeans, finished off with chunky white sneakers."
+
+Criterion 4, try 1. Fit card from `tools.py::create_fit_card`:
+
+```
+Finally scored this dreamy 90s floral silk slip on Depop for $30 and I am obsessed with the soft ivory and dusty pink palette. It has the ultimate cottagecore romance, but I love toughening it up by layering an oversized grey crewneck right over top with some beat-up black combat boots. Such an easy piece to dress down for everyday.
+```
+
+Criterion 5, try 4. Outfit from `tools.py::suggest_outfit` (empty-wardrobe
+prompt) and fit card from `tools.py::create_fit_card`:
+
+```
+Outfit: Balance the boxy, cropped silhouette of the jacket by pairing it with high-waisted wide-leg trousers or a fitted midi skirt to accentuate the waist. This light-wash vintage piece shines next to crisp whites, rich earth tones like olive and chocolate brown, or monochromatic denim for a bold Canadian tuxedo look.
+
+Fit card: Nothing beats a properly broken-in Wrangler denim jacket with that perfect vintage fade. I scored this cropped light-wash beauty for $42 on poshmark and it’s about to live over every slip dress and high-waisted trouser I own. The boxy fit gives it such a good streetwear edge without trying too hard.
 ```
 
 ---
