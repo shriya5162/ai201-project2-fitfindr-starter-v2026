@@ -19,7 +19,7 @@ import config
 import trace
 from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
-from mcp_client import call_tool
+from mcp_client import call_tool, MCPError
 
 
 # ── session state ─────────────────────────────────────────────────────────────
@@ -122,6 +122,8 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 
         if next_step == "parse":
             session["parsed"] = parse_query(session["query"])
+            trace.step("parse_query", inputs=session["query"],
+                       returned=_kv(session["parsed"]))
             next_step = "search"
 
         elif next_step == "search":
@@ -129,37 +131,85 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             # search_listings now goes through the MCP server (mcp_server.py)
             # rather than being imported from tools.py. Same inputs, same list
             # of dicts back.
-            session["search_results"] = call_tool("search_listings", {
-                "description": parsed["description"],
-                "size": parsed["size"],
-                "max_price": parsed["max_price"],
-            })
+            try:
+                session["search_results"] = call_tool("search_listings", {
+                    "description": parsed["description"],
+                    "size": parsed["size"],
+                    "max_price": parsed["max_price"],
+                })
+            except MCPError as exc:
+                session["error"] = _search_unreachable_message(exc)
+                trace.step("search_listings (via MCP)", inputs=_kv(parsed),
+                           returned=f"MCPError: {exc}",
+                           note="branch: server unreachable, stopping")
+                next_step = "done"
+                continue
 
             # ── THE BRANCH ───────────────────────────────────────────────────
             # Read the results back out of the session, not out of a local
             # variable, so what the branch sees is what the session holds.
             if not session["search_results"]:
                 session["error"] = _nothing_found_message(parsed)
+                note = "branch: empty, stopping before suggest_outfit"
                 next_step = "done"
             else:
+                note = "branch: results found, continuing"
                 next_step = "select"
+            trace.step("search_listings (via MCP)", inputs=_kv(parsed),
+                       returned=session["search_results"], note=note)
 
         elif next_step == "select":
             session["selected_item"] = session["search_results"][0]
+            trace.step("select_item",
+                       inputs=f"{len(session['search_results'])} results",
+                       returned=session["selected_item"],
+                       note="first result = highest keyword score")
             next_step = "outfit"
 
         elif next_step == "outfit":
-            session["outfit_suggestion"] = suggest_outfit(
-                new_item=session["selected_item"],
-                wardrobe=session["wardrobe"],
-            )
+            wardrobe_items = session["wardrobe"].get("items") or []
+            try:
+                session["outfit_suggestion"] = suggest_outfit(
+                    new_item=session["selected_item"],
+                    wardrobe=session["wardrobe"],
+                )
+            except ModelUnavailable as exc:
+                session["error"] = _model_down_message(
+                    session["selected_item"], "suggest an outfit", exc)
+                trace.step("suggest_outfit",
+                           inputs=_kv({"new_item": session["selected_item"]["title"],
+                                       "wardrobe_items": len(wardrobe_items)}),
+                           returned=f"ModelUnavailable: {exc}",
+                           note="model unreachable, stopping")
+                next_step = "done"
+                continue
+            trace.step("suggest_outfit",
+                       inputs=_kv({"new_item": session["selected_item"]["title"],
+                                   "wardrobe_items": len(wardrobe_items)}),
+                       returned=session["outfit_suggestion"],
+                       note="" if wardrobe_items else "empty wardrobe: general advice")
             next_step = "fit_card"
 
         elif next_step == "fit_card":
-            session["fit_card"] = create_fit_card(
-                outfit=session["outfit_suggestion"],
-                new_item=session["selected_item"],
-            )
+            try:
+                session["fit_card"] = create_fit_card(
+                    outfit=session["outfit_suggestion"],
+                    new_item=session["selected_item"],
+                )
+            except ModelUnavailable as exc:
+                session["error"] = _model_down_message(
+                    session["selected_item"], "write the fit card", exc)
+                trace.step("create_fit_card",
+                           inputs=_kv({"new_item": session["selected_item"]["title"],
+                                       "outfit": session["outfit_suggestion"]}),
+                           returned=f"ModelUnavailable: {exc}",
+                           note="model unreachable, stopping")
+                next_step = "done"
+                continue
+            trace.step("create_fit_card",
+                       inputs=_kv({"new_item": session["selected_item"]["title"],
+                                   "outfit": session["outfit_suggestion"]}),
+                       returned=session["fit_card"])
             next_step = "done"
 
     return session
@@ -235,6 +285,36 @@ def _nothing_found_message(parsed: dict) -> str:
         "'streetwear' and 'graphic tee', so those find more than a brand name "
         "or a specific garment will."
     )
+
+
+def _model_down_message(item: dict, task: str, exc: Exception) -> str:
+    """
+    What to say when suggest_outfit or create_fit_card can't reach the model.
+
+    The search already worked by this point, so the find is still worth
+    showing — the message leads with it, then says which step broke and why.
+    `exc` is generate.py's explanation (bad key, no network, bad model name),
+    which already names the thing to check.
+    """
+    return (
+        f"Found {item['title']} — ${item['price']:.0f} on {item['platform']} — "
+        f"but couldn't {task}: the model couldn't be reached. {exc} "
+        "Once that's fixed, ask again; the search itself worked."
+    )
+
+
+def _search_unreachable_message(exc: Exception) -> str:
+    """What to say when the MCP server holding search_listings won't answer."""
+    return (
+        "Couldn't search the listings: the search server (mcp_server.py) "
+        "didn't respond, so nothing was searched. Run `python mcp_server.py` "
+        "on its own to see why it won't start, fix that, then ask again."
+    )
+
+
+def _kv(d: dict) -> str:
+    """One-line key=value rendering for the trace, which otherwise only shows a dict's keys."""
+    return ", ".join(f"{k}={v!r}" for k, v in d.items())
 
 
 # ── running it directly ───────────────────────────────────────────────────────
