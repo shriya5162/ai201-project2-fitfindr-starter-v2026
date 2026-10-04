@@ -481,15 +481,75 @@ Fit card: Nothing beats a properly broken-in Wrangler denim jacket with that per
 
 | # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
+| 1 | A matching query completes all three tools | 4 of 5 | **MET (5/5)** | All five tries ended with `error = None` and a non-empty fit card. 5 ≥ 4. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | **MET (5/5)** | All five traces stop at step 2 (`search_listings`, `[] (empty)`) with no `suggest_outfit` step, `fit_card` is `None`, and the message names the words, size and price to change. |
+| 3 | The item search found is the item the next tool got | 5 of 5 | **MISSED (1/5)** | The criterion requires the selected item's *title* in `outfit_suggestion`. The full title `90s Track Jacket — Navy/White Stripe` appears only in try 1. Tries 2–5 say "90s Track Jacket", which is not the title. 1 < 5. |
+| 4 | The fit card names price and platform, caption-length | 4 of 5 | **MET (5/5)** | Each card: `$30` × 1, "depop" × 1 (any case), 3 sentences. Counted by script and by reading. 5 ≥ 4. |
+| 5 | An empty wardrobe still produces a card, nothing invented | 4 of 5 | **MET (5/5)**, as written | Five non-empty cards. None of the five outfit suggestions names a garment as one the user owns. But try 4's *fit card* says "every slip dress and high-waisted trouser **I own**". The criterion only scores the outfit, so it passes as written. See the diagnosis below. |
 
 **Diagnoses**
 
+**Criterion 3, MISSED (1/5). Place: the model's output (in
+`tools.py::suggest_outfit`), measured by a criterion that checks the wrong
+thing.**
 
+The session handoff worked all five times. In every trace, step 3
+(`select_item`) and step 4 (`suggest_outfit`, `new_item=...`) carry the same
+listing, `90s Track Jacket — Navy/White Stripe`. `agent.py::run_agent` passes
+`session["selected_item"]` straight into `suggest_outfit` without rebuilding
+it. So the loop and the session aren't where it broke.
+
+What failed is the evidence the criterion relies on. It checks the handoff by
+looking for the title in `outfit_suggestion`, which is text the model writes.
+My prompt asks it to "name the find by its title", but nothing in the code
+checks that it did. For this item the model shortened the title to the part
+before the dash in 4 of 5 tries. It does this only for this item. Across every
+example-wardrobe run, the full title appeared in 10 of 10 mentions for
+`Y2K Baby Tee — Butterfly Print`, 9 of 9 for
+`90s Silk Slip Dress — Floral, Midi Length`, and 2 of 10 for the track jacket.
+My guess, which I haven't tested, is that "Navy/White Stripe" reads as a
+colour note. It repeats the `Colours: navy, white` line just above it in the
+prompt, so the model treats it as metadata rather than part of the name.
+
+The underlying mistake is in how I wrote the criterion. My reason for 5 of 5
+says "nothing between those two points calls the model". But the measurement
+goes *through* a model call, so a 5-of-5 target on it was always exposed to
+model variance. The criterion measured whether the model copies a string, not
+whether the session passed the right item. See the revision in `criteria.md`.
+The original line and its MISSED verdict stand.
+
+**Pattern across the results.** The two findings that matter (the criterion 3
+miss and the criterion 5 flag) are the same problem showing up in two places:
+**the two tools that call the model return text that nothing in the code
+checks.** The prompts say "name the find by its title" and "do not name or
+assume any specific garment as something they already own". The model follows
+both most of the time and drops them some of the time, and `tools.py` returns
+whatever comes back. My criteria then point the wrong way. Criterion 3 checks
+model text for something the code already guarantees, the item handoff.
+Criterion 5 checks the outfit for invented ownership but not the fit card,
+which is where invented ownership actually showed up. In try 4 the empty-
+wardrobe prompt held in `suggest_outfit`, and then `create_fit_card`, which
+has no empty-wardrobe instruction and writes in the first person, said "I
+own".
+
+**Met criteria: were the targets too low?**
+
+- **Criterion 1: the target is fine, but my test of it was too narrow.** The 4
+  of 5 allowance was for phrasings that keyword search can't match, but I ran
+  one phrasing five times. Search is deterministic, so the only thing those
+  five tries could catch was a model crash. A fairer test is five different
+  phrasings of things that are in the data.
+- **Criterion 2:** 5 of 5 was the right target. It's an `if` on an empty list
+  and it held.
+- **Criterion 4: this is the one I'd tighten.** All five cards came out at
+  exactly 3 sentences with one price and one platform. The prompt spells out
+  both rules, so the 4 of 5 allowance for drift wasn't needed. I'd raise it to
+  5 of 5 and test it on more than one item. A single item can't show whether
+  a missing or odd field (for example `brand: None`) breaks the format.
+- **Criterion 5: met as written, but it checks the wrong output.** If it also
+  scored the fit card, try 4 would fail. That's 4/5, which still meets the
+  4-of-5 target, but only just, and it's the failure the criterion was written
+  to catch. Revision proposed in `criteria.md`.
 
 ---
 

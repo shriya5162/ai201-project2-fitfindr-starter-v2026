@@ -53,6 +53,19 @@ dict handed from the session into `suggest_outfit`. A mismatch means I passed
 the wrong item or rebuilt it instead of reading it back, so there's no
 variance to allow for.
 
+> **Revised in unit 4:** Across 5 runs with matching queries, the `id` of
+> `session["selected_item"]` equals the `id` of the `new_item` that
+> `suggest_outfit` was called with, read from the session and the trace
+> rather than from the model's text — 5 of 5 tries.
+>
+> **Why revised:** The original measured the wrong thing. It checked the
+> handoff by looking for the title in `outfit_suggestion`, which the model
+> writes, so it was really scoring whether the model copied a string. In
+> unit 4 the right item reached `suggest_outfit` in all five traces, but the
+> model shortened the title in 4 of 5, and the original scored that 1/5.
+> The target stays at 5 of 5. The original verdict (MISSED, 1/5) stands and
+> is not re-scored under this line.
+
 
 ---
 
@@ -80,6 +93,17 @@ owns — in at least 4 of 5 tries.
 against, and the obvious failure is the model confidently pairing the find
 with jeans the user never entered. 4 of 5 rather than 5 of 5 because avoiding
 that is down to my prompt holding the model back, not to an `if` statement.
+
+> **Revised in unit 4:** Run with `--empty-wardrobe`, the agent still returns
+> a non-empty fit card, and **neither the outfit suggestion nor the fit card**
+> names a specific garment as something the user already owns — in at least
+> 4 of 5 tries.
+>
+> **Why revised:** The original only looked at the outfit suggestion, so it
+> missed the failure it was written to catch. In unit 4 try 4, the fit card
+> said "every slip dress and high-waisted trouser I own". That's invented
+> ownership, and the original scored it PASS. This tightens the criterion;
+> the target is unchanged.
 
 
 ---
