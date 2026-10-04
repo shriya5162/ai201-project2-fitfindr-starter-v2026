@@ -203,8 +203,13 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
             f"Someone is considering this secondhand find:\n{item}\n\n"
             f"Here is everything in their wardrobe:\n{closet}\n\n"
             "Suggest one or two outfits pairing the find with pieces from "
-            "that list. Name each piece exactly as it is written above, and "
-            "name the find by its title. Use only pieces from the list."
+            "that list. Name each piece exactly as it is written above. "
+            # Unit 4 fix: "name the find by its title" let the model drop
+            # everything after the dash ("90s Track Jacket — Navy/White
+            # Stripe" became "90s Track Jacket") in 4 of 5 tries.
+            f'Every time you mention the find, write its full title exactly '
+            f'as "{new_item["title"]}" — including the part after the dash; '
+            "do not shorten it. Use only pieces from the list."
         )
 
     return generate(prompt, system=system)

@@ -741,26 +741,94 @@ not in the user message, because it tells a user nothing they can act on.
 
      `python run_eval.py --label after` -->
 
-**What I changed:**
+**What I changed:** One line of the prompt in `tools.py::suggest_outfit`,
+in the branch for a non-empty wardrobe. It used to say:
 
-**Which failure it was meant to fix:**
+```
+...Name each piece exactly as it is written above, and name the find by its title. Use only pieces from the list.
+```
+
+Now the prompt states the title itself and says not to shorten it:
+
+```
+...Name each piece exactly as it is written above. Every time you mention the find, write its full title
+exactly as "{new_item["title"]}" — including the part after the dash; do not shorten it. Use only pieces from the list.
+```
+
+Nothing else changed. The empty-wardrobe prompt, `create_fit_card`, the loop,
+the scenarios and the criteria are all exactly as they were in the before-run.
+
+**Which failure it was meant to fix:** Criterion 3, MISSED (1/5). The
+diagnosis found the session handoff was correct every time. The miss came from
+the model shortening `90s Track Jacket — Navy/White Stripe` to "90s Track
+Jacket" in 4 of 5 outfits, because the prompt said "its title" without saying
+what the title was or forbidding a short form.
 
 ### Run Log — After
 
+`python run_eval.py --label after`: same five scenarios, five tries each, cache
+off, 40 real model calls, temperature 0.9. Raw output:
+[`results/run_2026-10-03_2327_after.md`](results/run_2026-10-03_2327_after.md).
+Scored with the same rules as the before-run, against the **original**
+criteria.
+
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. The item search found is the item the next tool got | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. The fit card names price and platform, caption-length | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Empty wardrobe still produces a card, nothing invented | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
-**Did it help, and how do I know:**
+**Side by side**
 
-<!-- If it made things worse, say that. Honestly reported, that earns full
-     credit and is more interesting than one that worked. -->
+| Criterion | Target | Before | After |
+|---|---|---|---|
+| 1 | 4 of 5 | MET (5/5) | MET (5/5) |
+| 2 | 5 of 5 | MET (5/5) | MET (5/5) |
+| 3 | 5 of 5 | **MISSED (1/5)** | **MET (5/5)** |
+| 4 | 4 of 5 | MET (5/5) | MET (5/5) |
+| 5 | 4 of 5 | MET (5/5) | MET (5/5) |
+| 3, revised (id from session/trace) | 5 of 5 | 5/5 | 5/5 |
+| 5, revised (outfit **and** fit card) | 4 of 5 | 4/5 (try 4: "…trouser I own") | 4/5 (try 5: "I love throwing it over olive trousers") |
 
+Real output, criterion 3, after-run try 2. Outfit from
+`tools.py::suggest_outfit`:
 
+```
+Layer your 90s Track Jacket — Navy/White Stripe over the white ribbed tank top, paired with baggy straight-leg jeans, dark wash and chunky white sneakers for an effortless athletic look. For a colder day, wear the 90s Track Jacket — Navy/White Stripe over the oversized grey crewneck sweatshirt with wide-leg khaki trousers and black combat boots.
+```
+
+**Did it help, and how do I know:** Yes, for the criterion it targeted. The
+full title appeared in 2 of 2 mentions in all five track-jacket outfits, up
+from 2 of 10 mentions before. It also held for the other two items (10 of 10
+and 10 of 10). Criterion 3 went from MISSED (1/5) to MET (5/5), with the same
+scenario, scoring rule and target. Every other criterion stayed where it was.
+
+What it didn't fix, and what it may have made worse. I read all 20 after-run
+outfits against the 20 before-run ones:
+
+- **The fix was to the evidence, not the agent.** The item handoff was
+  already right 5/5 before the change. The revised criterion 3 scores 5/5 in
+  both runs. What improved is that the model now writes the full name, which
+  makes the outfit easier to match to the listing. It isn't a bug in the loop
+  being fixed.
+- **New: the model sometimes calls the find "your".** "Layer **your** 90s
+  Track Jacket — Navy/White Stripe" appears in 2 of 20 outfits after, and 0 of
+  20 before. Writing the title in full seems to make the model treat the find
+  like a wardrobe piece, which is exactly what the wardrobe pieces are named
+  like. That's a small step toward the invented-ownership problem from
+  criterion 5.
+- **New: two garbled words in the slip-dress outfits.** "Toughin up" (try 3)
+  and "Tourenough for cooler weather" (try 5). There were none in the
+  before-run, where the same sentence said "Toughen up". 2 in 20 at
+  temperature 0.9 is too few for me to say whether the change caused them or
+  they're chance. I'm reporting them because they're new.
+- **Criterion 5 under the revised wording is unchanged at 4/5.** The change
+  didn't touch `create_fit_card`, which is where that failure lives. The
+  after-run miss is softer than the before-run one: it implies ownership ("I
+  love throwing it over olive trousers") rather than saying "I own". I scored
+  it FAIL to stay consistent with the before-run.
 
 ---
 
