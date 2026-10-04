@@ -359,6 +359,43 @@ Three different cards, no shared opening sentence, and each names `$38` and
   invents clothes the user never entered depends on my prompt holding it back,
   and that can genuinely fail.
 
+**Unit 4**
+
+I used Claude Code for most of the hands-on work this unit.
+
+**Moment 3 — scoring criterion 3**
+
+- *What I asked for:* I asked Claude to score each of the five tries for
+  criterion 3 against `criteria.md` exactly as written. Criterion 3 says the
+  selected item's title has to appear in the outfit suggestion.
+- *What came back:* It scored 1/5. The selected item was
+  `90s Track Jacket — Navy/White Stripe`, but in tries 2–5 the outfit only
+  said "Layer the 90s Track Jacket over the white ribbed tank top…". Claude
+  pointed out that counting "90s Track Jacket" as the title would turn this
+  into 5/5, but only by loosening the criterion after seeing the results. It
+  also showed that the trace had the right item going into `suggest_outfit`
+  all five times, so the session wasn't the problem.
+- *What I changed:* I kept the verdict as MISSED (1/5). In `criteria.md` I
+  added a revision under the original criterion 3, with the original left in
+  place, that checks the item's id in the session and trace instead of the
+  model's text. I used this miss as my one fix in Milestone 5.
+
+**Moment 4 — checking the fix**
+
+- *What I asked for:* After changing the `suggest_outfit` prompt to give the
+  full title and say "do not shorten it", I asked Claude to re-run all five
+  criteria and compare all 20 outfits from the after-run against the 20 from
+  the before-run, not just the criterion 3 row.
+- *What came back:* Criterion 3 went from 1/5 to 5/5. But the comparison found
+  two things that weren't there before. Two outfits said "Layer **your** 90s
+  Track Jacket — Navy/White Stripe…", treating the find like something the
+  user already owns. Two slip-dress outfits had garbled words: "Toughin up"
+  and "Tourenough for cooler weather", where the before-run said "Toughen up".
+- *What I changed:* Instead of calling the fix a clean win, I wrote both
+  problems up under "Did it help" and in What's Still Broken. I didn't make a
+  second change to chase them, because then I couldn't tell which change
+  caused what.
+
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
      Don't fill these in during unit 3.
@@ -642,6 +679,11 @@ inputs (`vintage graphic tee`/M/$30, `vintage graphic tee`/no size/$30,
 so the branch in the loop still fires. The one visible change is speed: each
 search now starts the server process, so the search step is noticeably slower.
 
+The move also created a new way for the search to fail: if `mcp_server.py`
+can't start, `call_tool` raises `MCPError`. Before Milestone 2 nothing caught
+that, so the run would have crashed. The search step now catches it and stops
+with a message (see Failure Modes, "MCP server unreachable").
+
 
 ---
 
@@ -837,6 +879,50 @@ outfits against the 20 before-run ones:
 <!-- For each criterion still missed: what you'd do, and why you stopped where
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
+
+**No original criterion is still missed.** After the one change, all five
+are MET (5/5). That doesn't mean nothing is broken. It means my five criteria
+don't catch the problems below. In order of how much they matter:
+
+1. **The fit card can still invent clothes the user owns (revised criterion
+   5: 4/5 before, 4/5 after).** Before try 4: "every slip dress and
+   high-waisted trouser I own". After try 5: "I love throwing it over olive
+   trousers". The cause is in `tools.py::create_fit_card`. It's written in the
+   first person, it never sees the wardrobe, and it has no empty-wardrobe
+   instruction, so it invents a closet to make the caption sound real. **What
+   I'd do:** pass `create_fit_card` whether the wardrobe is empty and, if it
+   is, tell it not to mention owning other pieces. Then re-run revised
+   criterion 5. **Why I stopped:** the brief allows one change per re-run, and
+   my one change went to the only criterion that was actually MISSED
+   (criterion 3). This one still meets its 4-of-5 target, but only just.
+
+2. **The fix for criterion 3 had side effects I haven't resolved.** After the
+   prompt change, 2 of 20 outfits call the find "**your** 90s Track Jacket", so
+   the model is treating it like a wardrobe piece. Two outfits also have
+   garbled words ("Toughin up", "Tourenough"). Neither showed up in the
+   before-run. **What I'd do:** reword the line to "the find, called
+   \"<title>\"" so it reads as the new item rather than one of theirs. Then
+   run 10 tries instead of 5 to see whether the garbled words are tied to the
+   change or are just noise at temperature 0.9. **Why I stopped:** that would
+   be a second change, and with only 2 garbled words in 20 outfits I can't yet
+   say what's causing them.
+
+3. **Keyword search accepts one-word matches.** "corduroy jacket" returned a
+   *track* jacket, and "vintage graphic tee" ranks a silk slip dress third,
+   because `_keyword_score` counts any single matching word (Failure Modes
+   §2, Loop Trace). Criterion 1 can't catch this. It only checks that the run
+   completes, and I tested it on one phrasing that's in the data. **What I'd
+   do:** require a match on the garment noun (tee, jacket, dress…) before the
+   style words count, and re-test criterion 1 on five *different* phrasings,
+   which is what its 4-of-5 reason was actually about. **Why I stopped:** no
+   criterion failed on it, so I couldn't justify spending the one change here.
+
+4. **Two criteria were met too easily to tell me much.** Criterion 4 was 5/5
+   in both runs, with exactly 3 sentences every time, on one item. I'd raise
+   it to 5 of 5 and run it on several items, including one with
+   `brand: None`. Criterion 1, as above, needs varied phrasings. Neither one
+   would have failed in this unit, so I'm noting them rather than counting
+   them as fixed.
 
 
 
