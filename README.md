@@ -455,6 +455,21 @@ behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
 
+`search_listings` now runs behind MCP. In `mcp_server.py` it's registered with
+FastMCP under the same name and typed inputs as the Tool Inventory
+(`description: str`, `size: str | None`, `max_price: float | None`). Its
+description states units (US dollars, inclusive), the size-match rule, and the
+empty case (`[]`, never null or an error). In `agent.py` the direct
+`search_listings(...)` call in the `search` step is now
+`call_tool("search_listings", {...})`. `suggest_outfit` and `create_fit_card`
+are still called directly.
+
+Nothing behaved differently. I checked that by calling it both ways on three
+inputs (`vintage graphic tee`/M/$30, `vintage graphic tee`/no size/$30,
+`designer ballgown`/XXS/$5). Direct and MCP gave `==`-identical lists (10, 10,
+0 items). The empty case came back as an empty `list`, not `None` or a string,
+so the branch in the loop still fires. The one visible change is speed: each
+search now starts the server process, so the search step is noticeably slower.
 
 
 ---
